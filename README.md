@@ -1,2 +1,2 @@
-# LSMS-MRR
+#  SyMRR
 The code will be available soon.
