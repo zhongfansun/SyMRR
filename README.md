@@ -168,6 +168,7 @@ bash okvqa_compvisual.sh llava1_5 mcan_large train 0
 bash okvqa_reflective.sh llava1_5 mcan_large val 0
 python dataprocess/okvqa_compvisual.py --large_model_name llava1_5 --small_model_name mcan_large --output_split val
 bash okvqa_compvisual.sh llava1_5 mcan_large val 0
+```
 
 #### LLaVA-1.6 + MCAN-large
 
