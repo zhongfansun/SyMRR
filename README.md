@@ -26,8 +26,6 @@ Small VLMs:
 - mcan_large
 - mcan_small
 - vinvl
-- lxmert
-- visualbert
 ```
 
 The scripts below mainly show the reproduced settings for `vinvl`, `mcan_small`, and `mcan_large`.
@@ -65,8 +63,6 @@ Supported small model names include:
 mcan_large
 mcan_small
 vinvl
-lxmert
-visualbert
 ```
 
 Example:
@@ -99,7 +95,7 @@ where:
 
 ```text
 <large_model_name>  = llava1_5 or llava1_6
-<small_model_name>  = mcan_large, mcan_small, vinvl, lxmert, or visualbert
+<small_model_name>  = mcan_large, mcan_small, or vinvl
 <split>             = train or val
 <gpu_id>            = GPU index, e.g., 0
 ```
