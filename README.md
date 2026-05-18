@@ -8,14 +8,12 @@ This repository provides the implementation workflow of **SyMRR**: Multimodal Re
 The full OK-VQA workflow contains the following stages:
 
 1. **Environment setup**
-2. **Initial answer generation**
-3. **Large VLM baseline answer generation**
-4. **Textual reflection data preparation**
-5. **Reflective CoT generation**
-6. **Visual grounding description preparation**
-7. **Visual reflection compression**
-8. **EVF-SAM region-level visual grounding**
-9. **Final SyMRR training-data construction**
+2. **Textual reflection data preparation**
+3. **Reflective CoT generation**
+4. **Visual grounding description preparation**
+5. **Visual reflection compression**
+6. **EVF-SAM region-level visual grounding**
+7. **Final SyMRR training-data construction**
 
 The default workflow supports different large/small model combinations, including:
 
@@ -51,51 +49,7 @@ pip install opencv-python-headless==4.8.1.78
 pip install torchscale==0.2.0
 ```
 
-Create a symbolic link to the storage directory:
-
-```bash
-ln -s /root/autodl-tmp /root/ms-swift-main/
-```
-
-If you use different storage paths, please modify the dataset paths, checkpoint paths, and output paths in the corresponding shell and Python scripts.
-
-## 3. Initial Data Processing
-
-Generate the initial OK-VQA answers and related files:
-
-```bash
-python dataprocess/okvqa_answer_generate.py
-```
-
-Remove unused images to keep only the required image subset:
-
-```bash
-python dataprocess/delete_other_images.py
-```
-
-Move the downloaded ModelScope weights to the large VLM weight directory:
-
-```bash
-mv /root/.cache/modelscope/hub/models/swift/* /root/autodl-tmp/large_VLM_weights/
-```
-
-## 4. Generate Large VLM Baseline Answers
-
-Run LLaVA-1.5 baseline inference:
-
-```bash
-bash okvqa_llava1_5_answer.sh
-```
-
-Run LLaVA-1.6 baseline inference:
-
-```bash
-bash okvqa_llava1_6_answer.sh
-```
-
-These outputs are used as large-only baselines and can also verify whether the large VLM inference environment is correctly configured.
-
-## 5. Prepare Textual Reflection Data
+## 3. Prepare Textual Reflection Data
 
 Before generating reflective reasoning, prepare the reflection input data for the selected small model.
 
@@ -123,7 +77,7 @@ python dataprocess/okvqa_text_reflective.py --model_name mcan_large
 python dataprocess/okvqa_text_reflective.py --model_name vinvl
 ```
 
-## 6. Generate Textual Reflection and Visual Compression Data
+## 4. Generate Textual Reflection and Visual Compression Data
 
 For each large/small model combination and each data split, the workflow is:
 
@@ -150,7 +104,7 @@ where:
 <gpu_id>            = GPU index, e.g., 0
 ```
 
-### 6.1 VinVL
+### 4.1 VinVL
 
 #### LLaVA-1.5 + VinVL
 
@@ -176,7 +130,7 @@ python dataprocess/okvqa_compvisual.py --large_model_name llava1_6 --small_model
 bash okvqa_compvisual.sh llava1_6 vinvl val 0
 ```
 
-### 6.2 MCAN-small
+### 4.2 MCAN-small
 
 #### LLaVA-1.5 + MCAN-small
 
@@ -202,7 +156,7 @@ python dataprocess/okvqa_compvisual.py --large_model_name llava1_6 --small_model
 bash okvqa_compvisual.sh llava1_6 mcan_small val 0
 ```
 
-### 6.3 MCAN-large
+### 4.3 MCAN-large
 
 #### LLaVA-1.6 + MCAN-large
 
@@ -216,7 +170,7 @@ python dataprocess/okvqa_compvisual.py --large_model_name llava1_6 --small_model
 bash okvqa_compvisual.sh llava1_6 mcan_large val 0
 ```
 
-## 7. Generate EVF-SAM Visual Grounding Results
+## 5. Generate EVF-SAM Visual Grounding Results
 
 After the visual reflection descriptions are prepared, run EVF-SAM to obtain region-level visual grounding results.
 
@@ -253,7 +207,7 @@ bash EVF-SAM-main/evf_sam.sh 0 okvqa llava1_6 vinvl train
 bash EVF-SAM-main/evf_sam.sh 0 okvqa llava1_6 vinvl val
 ```
 
-## 8. Construct Final Training Data
+## 6. Construct Final Training Data
 
 After obtaining textual reflections, visual reflection descriptions, compressed visual data, and EVF-SAM grounding results, construct the final SyMRR training data.
 
@@ -293,7 +247,7 @@ python dataprocess/okvqa_training.py --large_model_name llava1_5 --small_model_n
 python dataprocess/okvqa_training.py --large_model_name llava1_5 --small_model_name vinvl --output_split val
 ```
 
-## 9. Recommended Running Order
+## 7. Recommended Running Order
 
 A typical full pipeline is:
 
@@ -336,7 +290,7 @@ python dataprocess/okvqa_training.py --large_model_name llava1_6 --small_model_n
 
 Replace `vinvl` with `mcan_small` or `mcan_large` to generate data for other small VLM settings.
 
-## 10. Notes
+## 8. Notes
 
 - All scripts should be executed under `ms-swift-main`.
 - The argument `<gpu_id>` is usually set to `0`, but can be changed according to your available GPU.
@@ -347,7 +301,7 @@ Replace `vinvl` with `mcan_small` or `mcan_large` to generate data for other sma
 - If you use LLaVA/LLaMA-family checkpoints, please make sure that you have obtained the required access permission and placed the checkpoints in the expected directory.
 
 
-## 11. Acknowledgement
+## 9. Acknowledgement
 
 In particular, our codebase is developed based on an old version of **MS-Swift**: https://github.com/modelscope/ms-swift
 
