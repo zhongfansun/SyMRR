@@ -158,6 +158,17 @@ bash okvqa_compvisual.sh llava1_6 mcan_small val 0
 
 ### 4.3 MCAN-large
 
+#### LLaVA-1.5 + MCAN-large
+
+```bash
+bash okvqa_reflective.sh llava1_5 mcan_large train 0
+python dataprocess/okvqa_compvisual.py --large_model_name llava1_5 --small_model_name mcan_large --output_split train
+bash okvqa_compvisual.sh llava1_5 mcan_large train 0
+
+bash okvqa_reflective.sh llava1_5 mcan_large val 0
+python dataprocess/okvqa_compvisual.py --large_model_name llava1_5 --small_model_name mcan_large --output_split val
+bash okvqa_compvisual.sh llava1_5 mcan_large val 0
+
 #### LLaVA-1.6 + MCAN-large
 
 ```bash
@@ -185,6 +196,9 @@ bash EVF-SAM-main/evf_sam.sh <gpu_id> okvqa <large_model_name> <small_model_name
 ```bash
 bash EVF-SAM-main/evf_sam.sh 0 okvqa llava1_6 mcan_large train
 bash EVF-SAM-main/evf_sam.sh 0 okvqa llava1_6 mcan_large val
+
+bash EVF-SAM-main/evf_sam.sh 0 okvqa llava1_5 mcan_large train
+bash EVF-SAM-main/evf_sam.sh 0 okvqa llava1_5 mcan_large val
 ```
 
 ### MCAN-small
