@@ -35,7 +35,7 @@ The scripts below mainly show the reproduced settings for `vinvl`, `mcan_small`,
 Enter the main code directory:
 
 ```bash
-cd ms-swift-main
+cd SyMRR
 ```
 
 Install the required packages:
@@ -295,6 +295,21 @@ python dataprocess/okvqa_training.py --large_model_name llava1_6 --small_model_n
 ```
 
 Replace `vinvl` with `mcan_small` or `mcan_large` to generate data for other small VLM settings.
+
+
+To make reproduction easier, we also provide the processed data and related files through Baidu Netdisk.
+
+Baidu Netdisk link:
+
+```text
+https://pan.baidu.com/s/12Efaihm3SNc3RZRWupkbLw?pwd=wqw5
+```
+
+Extraction code:
+
+```text
+wqw5
+```
 
 
 ## 8. Acknowledgement
