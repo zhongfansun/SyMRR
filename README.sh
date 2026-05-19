@@ -1,10 +1,7 @@
 
 
-scp -r -P 22 /group_file/HUyongli/szf/asimplebaseline/path_to_the_images/a_ok_vqa/test2017.zip root@connect.bjb1.seetacloud.com:/root/autodl-tmp/image_files/aokvqa/
-ssh -p 35888
-ssh -p 35888 root@connect.bjb1.seetacloud.com
 
-cd ms-swift-main
+cd SyMRR
 pip install -e '.[llm]'
 pip install opencv-python
 pip install opencv-python-headless==4.8.1.78
@@ -12,16 +9,9 @@ pip install torchscale==0.2.0
 
 ln -s /root/autodl-tmp /root/ms-swift-main/
 
-python dataprocess/okvqa_answer_generate.py
-python dataprocess/delete_other_images.py
-
-mv /root/.cache/modelscope/hub/models/swift/* /root/autodl-tmp/large_VLM_weights/
-
-bash okvqa_llava1_5_answer.sh
-bash okvqa_llava1_6_answer.sh
 
 # 准备反思数据
-# mcan_large mcan_small vinvl lxmert visualbert
+# mcan_large mcan_small vinvl 
 python dataprocess/okvqa_text_reflective.py --model_name vinvl
 
 
