@@ -314,6 +314,19 @@ wqw5
 
 ## 8. Acknowledgement
 
-In particular, our codebase is developed based on an old version of **MS-Swift**: https://github.com/modelscope/ms-swift
+Our code is built upon an old version of Swift:
 
-We sincerely thank the authors for releasing their code and models.
+[https://github.com/modelscope/ms-swift](https://github.com/modelscope/ms-swift)
+
+We sincerely thank the authors and contributors of Swift for their excellent open-source work.
+
+We also thank the authors of Prophet for providing useful resources for MCAN-based VQA feature extraction:
+
+[https://github.com/MILVLG/prophet](https://github.com/MILVLG/prophet)
+
+
+---
+
+## Contact
+
+If you have any questions about the code or data preparation, please open an issue in this repository or contact the authors.
