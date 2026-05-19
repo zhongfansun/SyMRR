@@ -16,8 +16,7 @@
 
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
-import time
-from collections import defaultdict
+
 import torch
 import torch.utils.checkpoint
 from torch import nn
@@ -101,6 +100,23 @@ class LlavaMultiModalProjector(nn.Module):
         hidden_states = self.linear_2(hidden_states)
         return hidden_states
 
+class VQA_features_Projector(nn.Module):
+    def __init__(self, config: LlavaConfig, dim1, dim2, init_value=False):
+        super().__init__()
+
+        self.linear_1 = nn.Linear(dim1, dim2, bias=init_value) #dim2=32 64 128
+        self.act = ACT2FN[config.projector_hidden_act]
+        self.linear_2 = nn.Linear(dim2, dim2, bias=init_value)
+        # self.dropout = nn.Dropout(p=0.05)
+
+    def forward(self, VQA_features):
+        # VQA_features = self.dropout(VQA_features)
+        hidden_states = self.linear_1(VQA_features)
+        hidden_states = self.act(hidden_states)
+        hidden_states = self.linear_2(hidden_states)
+        # breakpoint()
+        # print(hidden_states)
+        return hidden_states
 
 LLAVA_START_DOCSTRING = r"""
     This model inherits from [`PreTrainedModel`]. Check the superclass documentation for the generic methods the
@@ -238,12 +254,65 @@ LLAVA_INPUTS_DOCSTRING = r"""
     """The LLAVA model which consists of a vision backbone and a language model.""",
     LLAVA_START_DOCSTRING,
 )
+
+class CrossAttentionLayer(nn.Module):
+    def __init__(self, embed_dim, num_heads, dropout=0.1):
+        super(CrossAttentionLayer, self).__init__()
+        self.multihead_attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
+        self.norm = nn.LayerNorm(embed_dim)
+        self.ffn = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim * 4),
+            nn.ReLU(),
+            nn.Linear(embed_dim * 4, embed_dim),
+        )
+        self.ffn_norm = nn.LayerNorm(embed_dim)
+
+    def forward(self, x, context):
+        # x: (B, 256, 1024), context: (B, 32, 1024)
+        attn_output, _ = self.multihead_attn(query=x, key=context, value=context)
+        x = self.norm(x + attn_output)
+        ffn_output = self.ffn(x)
+        x = self.ffn_norm(x + ffn_output)
+        return x
+
+class TwoLayerTransformer(nn.Module):
+    def __init__(self, embed_dim=1024, num_heads=8, dropout=0.1):
+        super(TwoLayerTransformer, self).__init__()
+        self.layer1 = CrossAttentionLayer(embed_dim, num_heads, dropout)
+        self.layer2 = CrossAttentionLayer(embed_dim, num_heads, dropout)
+
+    def forward(self, vision_feat, text_feat):
+        # vision_feat: (B, 256, 1024), text_feat: (B, 32, 1024)
+        x = self.layer1(vision_feat, text_feat)
+        x = self.layer2(x, text_feat)
+        return x
+
 class LlavaForConditionalGeneration(LlavaPreTrainedModel):
     def __init__(self, config: LlavaConfig):
         super().__init__(config)
+
         self.vision_tower = AutoModel.from_config(config.vision_config)
 
         self.multi_modal_projector = LlavaMultiModalProjector(config)
+        self.VQA_features_mapping = nn.ModuleList([VQA_features_Projector(config, 1024, 5120) for _ in range(2)])
+        self.TwoLayerT1 = TwoLayerTransformer(embed_dim=1024, num_heads=8)
+        self.TwoLayerT2 = TwoLayerTransformer(embed_dim=1024, num_heads=8)
+
+        from flamingo_pytorch import PerceiverResampler
+        self.perceiver_resampler = PerceiverResampler(
+            dim=1024,  # 输入嵌入的维度
+            depth=2,  # 感知器的层数
+            dim_head=128,  # 每个注意力头的维度
+            heads=8,  # 注意力头的数量
+            num_latents=8,  # 潜在向量的数量
+            num_media_embeds=1  # 媒体嵌入的数量
+        )
+
+        from transformers import AutoConfig
+        bert_config = AutoConfig.from_pretrained('autodl-tmp/other_weights/bert-large-uncased')
+        self.bert_model = AutoModel.from_config(bert_config)
+
+
         self.vocab_size = config.text_config.vocab_size
         self.language_model = AutoModelForCausalLM.from_config(
             config.text_config, attn_implementation=config._attn_implementation
@@ -363,6 +432,11 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
         self,
         input_ids: torch.LongTensor = None,
         pixel_values: torch.FloatTensor = None,
+        img_feat: torch.FloatTensor = None,
+        ques_ids: torch.LongTensor = None,
+        bert_input_ids: torch.LongTensor = None,
+        bert_token_type_ids: torch.LongTensor = None,
+        bert_attention_mask: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
@@ -419,26 +493,7 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
             if vision_feature_select_strategy is not None
             else self.config.vision_feature_select_strategy
         )
-        profile_time = True
 
-        if not hasattr(self, "module_times"):
-            self.module_times = defaultdict(float)
-            self.module_counts = defaultdict(int)
-
-        def tic():
-            if profile_time:
-                torch.cuda.synchronize()
-                return time.perf_counter()
-            return None
-
-        def toc(name, start_time):
-            if profile_time and start_time is not None:
-                torch.cuda.synchronize()
-                elapsed = time.perf_counter() - start_time
-                self.module_times[name] += elapsed
-                self.module_counts[name] += 1
-
-        t = tic()
         if inputs_embeds is None:
             # 1. Extra the input embeddings
             inputs_embeds = self.get_input_embeddings()(input_ids)
@@ -446,13 +501,13 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
             # 2. Merge text and images
             if pixel_values is not None and input_ids.shape[1] != 1:
 
-                self.module_times.clear()
-                self.module_counts.clear()
-
+                # mapping_features_text=[]
+                # breakpoint()
+                VQA_features_text = ques_ids.to(pixel_values.dtype) #.to(torch.bfloat16)
+                VQA_features_vision = img_feat.to(pixel_values.dtype)
 
                 image_outputs = self.vision_tower(pixel_values, output_hidden_states=True)
 
-                # this is not memory efficient at all (output_hidden_states=True) will save all the hidden stated.
                 selected_image_feature = image_outputs.hidden_states[vision_feature_layer]
 
                 if vision_feature_select_strategy == "default":
@@ -464,10 +519,27 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
                         f"Unexpected select feature strategy: {self.config.vision_feature_select_strategy}"
                     )
 
+                first_part = selected_image_feature[::2]
+                second_part = selected_image_feature[1::2]
 
-                image_features = self.multi_modal_projector(selected_image_feature)
+                resampled_second_part = self.perceiver_resampler(second_part).squeeze(1)  #8,32,1024
+                # selected_image_feature_concat = torch.cat((first_part, resampled_second_part), dim=1)
+
+                with torch.no_grad():  # 禁用梯度计算以提高推理速度
+                    bert_outputs = self.bert_model(input_ids=bert_input_ids, attention_mask=bert_attention_mask,
+                                                   token_type_ids=bert_token_type_ids).last_hidden_state
+
+                VQA_features_text = self.TwoLayerT1(VQA_features_text, bert_outputs)
+                VQA_features_vision = self.TwoLayerT2(VQA_features_vision, resampled_second_part)
+
+                mapping_features_text = self.VQA_features_mapping[0](VQA_features_text)
+                mapping_features_vision = self.VQA_features_mapping[1](VQA_features_vision)
+
+                image_features = self.multi_modal_projector(first_part)  #.to(torch.bfloat16)
+                image_features = torch.cat((mapping_features_vision, image_features, mapping_features_text), dim=1)
 
                 inputs_embeds = inputs_embeds.to(image_features.dtype)
+
                 inputs_embeds, attention_mask, labels, position_ids = self._merge_input_ids_with_image_features(
                     image_features, inputs_embeds, input_ids, attention_mask, labels
                 )
@@ -505,7 +577,6 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
                 attention_mask = torch.cat((extended_attention_mask, attention_mask[:, -target_length:]), dim=1)
                 position_ids = torch.sum(attention_mask, dim=1).unsqueeze(-1) - 1
 
-
         outputs = self.language_model(
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -516,27 +587,7 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        toc("language_model", t)
 
-        if profile_time and pixel_values is not None and input_ids is not None and input_ids.shape[1] != 1:
-            total_time = sum(self.module_times.values())
-
-            print("\n========== Original LLaVA Module Inference Time ==========", flush=True)
-            for name, total in sorted(self.module_times.items(), key=lambda x: x[1], reverse=True):
-                count = self.module_counts[name]
-                avg = total / count
-                ratio = total / total_time * 100 if total_time > 0 else 0
-
-                print(
-                    f"{name:40s} "
-                    f"total: {total:.6f}s | "
-                    f"avg: {avg:.6f}s | "
-                    f"count: {count:4d} | "
-                    f"ratio: {ratio:6.2f}%",
-                    flush=True,
-                )
-
-            print(f"Total measured time: {total_time:.6f}s", flush=True)
         logits = outputs[0]
 
         loss = None
@@ -616,6 +667,11 @@ class LlavaForConditionalGeneration(LlavaPreTrainedModel):
                 "use_cache": kwargs.get("use_cache"),
                 "attention_mask": attention_mask,
                 "pixel_values": pixel_values,
+                'img_feat': kwargs['img_feat'],
+                'ques_ids': kwargs['ques_ids'],
+                'bert_input_ids': kwargs['bert_input_ids'],
+                'bert_token_type_ids': kwargs['bert_token_type_ids'],
+                'bert_attention_mask': kwargs['bert_attention_mask'],
             }
         )
         return model_inputs
