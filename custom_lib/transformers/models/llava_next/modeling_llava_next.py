@@ -206,18 +206,14 @@ class VQA_features_Projector(nn.Module):
     def __init__(self, config: LlavaNextConfig, dim1, dim2, init_value=False):
         super().__init__()
 
-        self.linear_1 = nn.Linear(dim1, dim2, bias=init_value) #dim2=32 64 128
+        self.linear_1 = nn.Linear(dim1, dim2, bias=init_value)
         self.act = ACT2FN[config.projector_hidden_act]
         self.linear_2 = nn.Linear(dim2, dim2, bias=init_value)
-        # self.dropout = nn.Dropout(p=0.05)
 
     def forward(self, VQA_features):
-        # VQA_features = self.dropout(VQA_features)
         hidden_states = self.linear_1(VQA_features)
         hidden_states = self.act(hidden_states)
         hidden_states = self.linear_2(hidden_states)
-        # breakpoint()
-        # print(hidden_states)
         return hidden_states
 
 LLAVA_NEXT_START_DOCSTRING = r"""
@@ -374,7 +370,6 @@ class CrossAttentionLayer(nn.Module):
         self.ffn_norm = nn.LayerNorm(embed_dim)
 
     def forward(self, x, context):
-        # x: (B, 256, 1024), context: (B, 32, 1024)
         attn_output, _ = self.multihead_attn(query=x, key=context, value=context)
         x = self.norm(x + attn_output)
         ffn_output = self.ffn(x)
@@ -388,7 +383,6 @@ class TwoLayerTransformer(nn.Module):
         self.layer2 = CrossAttentionLayer(embed_dim, num_heads, dropout)
 
     def forward(self, vision_feat, text_feat):
-        # vision_feat: (B, 256, 1024), text_feat: (B, 32, 1024)
         x = self.layer1(vision_feat, text_feat)
         x = self.layer2(x, text_feat)
         return x
@@ -405,12 +399,12 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
 
         from flamingo_pytorch import PerceiverResampler
         self.perceiver_resampler = PerceiverResampler(
-            dim=1024,  # 输入嵌入的维度
-            depth=2,  # 感知器的层数
-            dim_head=128,  # 每个注意力头的维度
-            heads=8,  # 注意力头的数量
-            num_latents=8,  # 潜在向量的数量
-            num_media_embeds=1  # 媒体嵌入的数量
+            dim=1024,
+            depth=2,
+            dim_head=128,
+            heads=8,
+            num_latents=8,
+            num_media_embeds=1
         )
 
         from transformers import AutoConfig
@@ -836,10 +830,6 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
 
             # 2. Merge text and images
             if pixel_values is not None and input_ids.shape[1] != 1 and pixel_values.size(0) > 0:
-                # ---------------------------------------------------------
-                # 1. 计算每张图原本应该有多少 patches
-                #    如果 batch_size=4 且每个样本2张图，则 len(image_sizes)=8
-                # ---------------------------------------------------------
                 image_num_patches_all = [
                     image_size_to_num_patches(
                         image_size=imsize,
@@ -851,19 +841,12 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
 
                 num_images = len(image_num_patches_all)
 
-                # 每个样本两张图，因此总图像数应该是偶数
                 if num_images % 2 != 0:
                     raise ValueError(
                         f"Expected an even number of images because each sample has 2 images, "
                         f"but got {num_images} images."
                     )
 
-                # ---------------------------------------------------------
-                # 2. 区分每个样本的第一张图和第二张图
-                #    约定：
-                #    image 0,2,4,6,... 是每个样本的第一张图
-                #    image 1,3,5,7,... 是每个样本的第二张图
-                # ---------------------------------------------------------
                 first_image_indices = list(range(0, num_images, 2))
                 second_image_indices = list(range(1, num_images, 2))
 
@@ -879,38 +862,22 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
                     image_sizes[i] for i in second_image_indices
                 ]
 
-                # ---------------------------------------------------------
-                # 3. 整理 pixel_values
-                # ---------------------------------------------------------
                 if pixel_values.dim() == 5:
-                    # pixel_values: [num_images, max_num_patches, C, H, W]
-                    # 例如 batch_size=4，每个样本2张图：
-                    # pixel_values.shape = [8, max_num_patches, 3, 336, 336]
-
-                    # 第一张图：保留原本所有有效 patches，走 LLaVA-1.6 原始逻辑
                     first_pixel_values_list = [
                         pixel_values[i][:image_num_patches_all[i]]
                         for i in first_image_indices
                     ]
 
-                    # 第二张图：只保留第 0 个 patch，也就是全局 patch
                     second_global_pixel_values_list = [
                         pixel_values[i][:1]
                         for i in second_image_indices
                     ]
 
-                    # 第一张图所有 patches 拼接
                     pixel_values_first = torch.cat(first_pixel_values_list, dim=0)
-                    # shape: [sum(image_num_patches_first), C, H, W]
 
-                    # 第二张图只取全局 patch
                     pixel_values_second_global = torch.cat(second_global_pixel_values_list, dim=0)
-                    # shape: [batch_size, C, H, W]
 
                 elif pixel_values.dim() == 4:
-                    # pixel_values: [sum(all_image_num_patches), C, H, W]
-                    # 如果已经是 4 维，说明所有图像 patches 已经提前拼接好了
-                    # 此时需要先按照 image_num_patches_all 拆开，再区分第一张图和第二张图
 
                     pixel_values_split = torch.split(
                         pixel_values,
@@ -936,9 +903,6 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
                         f"pixel_values of shape {pixel_values.shape}, expect to be of 4 or 5 dimensions"
                     )
 
-                # ---------------------------------------------------------
-                # 4. 第一张图：按原 LLaVA-1.6 逻辑送入 vision_tower
-                # ---------------------------------------------------------
                 image_features_first = self.vision_tower(
                     pixel_values_first,
                     output_hidden_states=True,
@@ -953,16 +917,12 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
 
                 image_features_first = self.multi_modal_projector(selected_image_feature_first)
 
-                # 按每个样本第一张图的 patch 数拆回去
                 image_features_first = torch.split(
                     image_features_first,
                     image_num_patches_first,
                     dim=0,
                 )
 
-                # ---------------------------------------------------------
-                # 5. 第二张图：只取全局 patch，送入 vision_tower
-                # ---------------------------------------------------------
                 second_global_outputs = self.vision_tower(
                     pixel_values_second_global,
                     output_hidden_states=True,
@@ -971,12 +931,10 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
                 second_global_feature = second_global_outputs.hidden_states[vision_feature_layer]
 
                 if vision_feature_select_strategy == "default":
-                    # 去掉 CLS token，只保留视觉 patch tokens
                     second_global_feature = second_global_feature[:, 1:]
                 elif vision_feature_select_strategy == "full":
                     second_global_feature = second_global_feature
 
-                # 如果你希望后续处理使用 LLM hidden size 的特征，就过 projector
                 VQA_features_text = ques_ids.to(pixel_values.dtype) #.to(torch.bfloat16)
                 VQA_features_vision = img_feat.to(pixel_values.dtype)
 
@@ -984,7 +942,7 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
                 resampled_second_part = self.perceiver_resampler(second_global_feature).squeeze(1)  #8,32,1024
                 # selected_image_feature_concat = torch.cat((first_part, resampled_second_part), dim=1)
 
-                with torch.no_grad():  # 禁用梯度计算以提高推理速度
+                with torch.no_grad():
                     bert_outputs = self.bert_model(input_ids=bert_input_ids, attention_mask=bert_attention_mask,
                                                    token_type_ids=bert_token_type_ids).last_hidden_state
 
@@ -994,22 +952,12 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
                 mapping_features_text = self.VQA_features_mapping[0](VQA_features_text)
                 mapping_features_vision = self.VQA_features_mapping[1](VQA_features_vision)
 
-
-                # ---------------------------------------------------------
-                # 6. 第一张图继续走原来的 LLaVA-1.6 pack + merge 逻辑
-                # ---------------------------------------------------------
                 image_features, feature_lens = self.pack_image_features(
                     image_features_first,
                     image_sizes_first,
                     image_newline=self.image_newline,
                 )
 
-                # image_features: [sum(feature_lens), hidden_size]
-                # feature_lens:   [B]
-
-                # ---------------------------------------------------------
-                # 关键：把 pack 后的 image_features 按样本拆开
-                # ---------------------------------------------------------
                 image_features_split = torch.split(
                     image_features,
                     feature_lens.tolist() if hasattr(feature_lens, "tolist") else feature_lens,
@@ -1020,13 +968,9 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
                 new_feature_lens = []
 
                 for i, cur_image_feature in enumerate(image_features_split):
-                    # cur_image_feature: [cur_len, hidden_size]
-
                     cur_mapping_vision = mapping_features_vision[i]
                     cur_mapping_text = mapping_features_text[i]
 
-                    # 如果 mapping_features 是 [B, K, D]，这里 cur_mapping_x 是 [K, D]
-                    # 如果不小心是 [D]，则补成 [1, D]
                     if cur_mapping_vision.dim() == 1:
                         cur_mapping_vision = cur_mapping_vision.unsqueeze(0)
 
@@ -1042,7 +986,6 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
                         dtype=cur_image_feature.dtype,
                     )
 
-                    # 每个样本内部拼接
                     cur_new_image_feature = torch.cat(
                         [
                             cur_mapping_vision,
@@ -1055,7 +998,6 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
                     new_image_features_list.append(cur_new_image_feature)
                     new_feature_lens.append(cur_new_image_feature.shape[0])
 
-                # 重新拼成 LLaVA 需要的 packed 格式
                 image_features = torch.cat(new_image_features_list, dim=0)
 
                 feature_lens = torch.tensor(
@@ -1213,6 +1155,11 @@ class LlavaNextForConditionalGeneration(LlavaNextPreTrainedModel):
                 "attention_mask": attention_mask,
                 "pixel_values": pixel_values,
                 "image_sizes": image_sizes,
+                'img_feat': kwargs['img_feat'],
+                'ques_ids': kwargs['ques_ids'],
+                'bert_input_ids': kwargs['bert_input_ids'],
+                'bert_token_type_ids': kwargs['bert_token_type_ids'],
+                'bert_attention_mask': kwargs['bert_attention_mask'],
             }
         )
         return model_inputs
